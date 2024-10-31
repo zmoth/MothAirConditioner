@@ -1,16 +1,21 @@
 #include <Adafruit_AHTX0.h>
-#include <MideaHeatpumpIR.h>
+// #include <ir_Midea.h>
+// #include <IRremoteESP8266.h>
+#include <IRsend.h>
 
 #include "HomeSpan.h"
+#include "IRsendMeidi.h"
 
 Adafruit_AHTX0 aht;
-IRSenderPWM irSender(14);
+
+IRsendMeidi irsendmeidi(12);
 
 class DevThermostat : public Service::Thermostat
 {
+    const uint16_t kIrLed = 12;
+    // IRMideaAC *ac;
     sensors_event_t temp_sensor;
     sensors_event_t humidity_sensor;
-    HeatpumpIR *heatpumpIR;
 
     SpanCharacteristic *currentState;
     SpanCharacteristic *targetState;
@@ -23,14 +28,20 @@ class DevThermostat : public Service::Thermostat
     DevThermostat()
     {
         aht.getEvent(&humidity_sensor, &temp_sensor);
-        heatpumpIR = new MideaHeatpumpIR();
 
-        currentState = new Characteristic::CurrentHeatingCoolingState(0);
+        pinMode(kIrLed, OUTPUT);
+        // ac = new IRMideaAC(kIrLed);
+
+        irsendmeidi.begin_2();
+        irsendmeidi.setZBPL(38);
+        irsendmeidi.setCodeTime(500, 1600, 550, 4400, 4400, 5220);
+
+        currentState = new Characteristic::CurrentHeatingCoolingState();
         targetState = new Characteristic::TargetHeatingCoolingState();
 
         currentTemp = new Characteristic::CurrentTemperature(temp_sensor.temperature);
         currentTemp->setRange(-50, 100);
-        targetTemp = new Characteristic::TargetTemperature();
+        targetTemp = new Characteristic::TargetTemperature(26.0, true);
         targetTemp->setRange(16, 30, 0.5);
         currentHumidity = new Characteristic::CurrentRelativeHumidity(humidity_sensor.relative_humidity);
 
@@ -52,48 +63,41 @@ class DevThermostat : public Service::Thermostat
         int state = targetState->getNewVal();
         float temp = targetTemp->getNewVal();
 
-        // // Save to EEPROM.
-        // ACState.put(0, state);
-        // ACState.commit();
-        // ACTemp.put(0, temp);
-        // ACTemp.commit();
+        switch (state) {
+            case Characteristic::TargetHeatingCoolingState::OFF:
+                // ac->off();
+                // ac->send();
+                irsendmeidi.setPowers(0);
+                return (true);
+            case Characteristic::TargetHeatingCoolingState::HEAT:
+                // ac->on();
+                // ac->setMode(kMideaACHeat);
+                irsendmeidi.setPowers(1);
+                delay(100);
+                irsendmeidi.setModes(2);
+                currentState->setVal(state);
+                break;
+            case Characteristic::TargetHeatingCoolingState::COOL:
+                // ac->on();
+                // ac->setMode(kMideaACCool);
+                irsendmeidi.setPowers(1);
+                delay(100);
+                irsendmeidi.setModes(1);
+                currentState->setVal(state);
+                break;
+            default:
+                // ac->on();
+                // ac->setMode(kMideaACAuto);
+                irsendmeidi.setPowers(1);
+                delay(100);
+                irsendmeidi.setModes(0);
+                currentState->setVal(0);
+                break;
+        }
 
-        // if (state == 0) {
-        //     IRACSwitch.put(0, 0);
-        //     ac.off();
-        // } else {
-        //     IRACSwitch.put(0, 1);
-        //     ac.on();
-        //     previousACState = state;
-        // }
-
-        // switch (state) {
-        //     case 0:
-        //         break;
-        //     case 1:
-        //         state = kPanasonicAcHeat;
-        //         currentState->setVal(state);
-        //         break;
-        //     case 2:
-        //         state = kPanasonicAcCool;
-        //         currentState->setVal(state);
-        //         break;
-        //     default:
-        //         state = kPanasonicAcAuto;
-        //         // Setting the current state to auto cause the device to stop responding.
-        //         currentState->setVal(0);
-        //         break;
-        // }
-
-        // ac.setMode(state);
-        // IRACState.put(0, state);
-
-        // ac.setFan(kPanasonicAcFanAuto);
-        // ac.setSwingVertical(kPanasonicAcSwingVAuto);
-        // ac.setSwingHorizontal(kPanasonicAcSwingHAuto);
-        // ac.setTemp(temp);
-        // ac.send();
-        // printState();
+        // ac->setTemp(temp);
+        // ac->send();
+        irsendmeidi.setTemps(temp);
         return (true);
     }
 };
