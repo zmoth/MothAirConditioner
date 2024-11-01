@@ -6,8 +6,6 @@
 #include "HomeSpan.h"
 #include "IRsendMeidi.h"
 
-Adafruit_AHTX0 aht;
-
 IRsendMeidi irsendmeidi(12);
 
 class DevThermostat : public Service::Thermostat
@@ -16,18 +14,26 @@ class DevThermostat : public Service::Thermostat
     // IRMideaAC *ac;
     sensors_event_t temp_sensor;
     sensors_event_t humidity_sensor;
+    Adafruit_AHTX0 *aht;
 
     SpanCharacteristic *currentState;
     SpanCharacteristic *targetState;
     SpanCharacteristic *currentTemp;
     SpanCharacteristic *targetTemp;
     SpanCharacteristic *currentHumidity;
-    SpanCharacteristic *unit;
 
   public:
     DevThermostat()
     {
-        aht.getEvent(&humidity_sensor, &temp_sensor);
+        aht = new Adafruit_AHTX0();
+        if (!aht->begin()) {
+            Serial.println("Could not find AHT? Check wiring");
+            while (1) {
+                delay(10);
+            }
+        }
+
+        aht->getEvent(&humidity_sensor, &temp_sensor);
 
         pinMode(kIrLed, OUTPUT);
         // ac = new IRMideaAC(kIrLed);
@@ -43,15 +49,16 @@ class DevThermostat : public Service::Thermostat
         currentTemp->setRange(-50, 100);
         targetTemp = new Characteristic::TargetTemperature(26.0, true);
         targetTemp->setRange(16, 30, 0.5);
-        currentHumidity = new Characteristic::CurrentRelativeHumidity(humidity_sensor.relative_humidity);
 
-        unit = new Characteristic::TemperatureDisplayUnits(0);
+        new Characteristic::TemperatureDisplayUnits(0);  // 设置的单位为摄氏度
+
+        currentHumidity = new Characteristic::CurrentRelativeHumidity(humidity_sensor.relative_humidity);
     }
 
     void loop() override
     {
         if (currentTemp->timeVal() > 5000) {
-            aht.getEvent(&humidity_sensor, &temp_sensor);
+            aht->getEvent(&humidity_sensor, &temp_sensor);
 
             currentTemp->setVal(temp_sensor.temperature);
             currentHumidity->setVal(humidity_sensor.relative_humidity);
@@ -85,6 +92,7 @@ class DevThermostat : public Service::Thermostat
                 irsendmeidi.setModes(1);
                 currentState->setVal(state);
                 break;
+            case Characteristic::TargetHeatingCoolingState::AUTO:
             default:
                 // ac->on();
                 // ac->setMode(kMideaACAuto);
@@ -118,18 +126,12 @@ void setup()
     Serial.begin(115200);
     Wire.begin(16, 17);
 
-    if (!aht.begin()) {
-        Serial.println("Could not find AHT? Check wiring");
-        while (1)
-            delay(10);
-    }
-
+    homeSpan.setApSSID("CocoonSetup");
     homeSpan.setPairingCode("97654321");
-    homeSpan.setApSSID("MothHomeSetup");
     homeSpan.setApPassword("97654321");
     homeSpan.enableOTA("97654321");
 
-    homeSpan.begin(Category::AirConditioners, "Moth AirConditioner");
+    homeSpan.begin(Category::AirConditioners, "Moth AC Control");
 
     new SpanAccessory();
     new Service::AccessoryInformation();
